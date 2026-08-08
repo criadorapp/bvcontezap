@@ -1,0 +1,19 @@
+{
+  "name": "bv-conte-webhook",
+  "version": "1.0.0",
+  "description": "Servidor externo do bot WhatsApp BV.conte - processa mensagens via Wasender e grava na Base44 via API REST",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "form-data": "^4.0.0",
+    "node-fetch": "^3.3.2"
+  }
+}
