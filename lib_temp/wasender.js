@@ -1,112 +1,118 @@
 // ══════════════════════════════════════════════════════
-// Wasender API + Groq Whisper - Utilitários
+// Wasender API helpers
 // ══════════════════════════════════════════════════════
 
-const WASENDER_API_BASE = 'https://api.wa-sender.com';
-const WASENDER_API_KEY = process.env.WASENDER_API_KEY;
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const WASENDER_API_KEY = () => process.env.WASENDER_API_KEY;
 
-function normalizePhone(phone) {
-  if (!phone) return null;
-  let p = String(phone).replace(/[^\d+]/g, '');
-  if (p.startsWith('+')) p = p.slice(1);
-  if (p.startsWith('55')) p = p.slice(2);
-  p = '55' + p;
-  return p;
+function getApiKey() {
+  const key = WASENDER_API_KEY();
+  if (!key) console.error('❌ WASENDER_API_KEY não configurada');
+  return key;
 }
 
-async function sendWhatsAppMessage(phone, message, timeoutMs = 15000) {
-  if (!phone || !message) return { error: 'phone/message vazio' };
-  const to = normalizePhone(phone);
-  if (!to) return { error: 'telefone invalido' };
+// Envia uma mensagem de texto via WhatsApp
+async function sendWhatsAppMessage(phone, text) {
+  const apiKey = getApiKey();
+  if (!apiKey) return;
+  const botPhone = process.env.WASENDER_BOT_PHONE;
+  console.log('🤖 BOT PHONE CONFIG:', botPhone);
 
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  let cleanPhone = String(phone).replace(/@.*$/, '').replace(/\D/g, '');
+  if (!cleanPhone.startsWith('55')) cleanPhone = '55' + cleanPhone;
+  if (cleanPhone.length < 12 || cleanPhone.length > 15) {
+    console.error('❌ Telefone inválido:', cleanPhone);
+    return;
+  }
+
+  console.log('📤 [SEND] Enviando para:', cleanPhone, '| Texto:', text.substring(0, 50));
+
   try {
-    const res = await fetch(`${WASENDER_API_BASE}/send-message`, {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const res = await fetch('https://www.wasenderapi.com/api/send-message', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${WASENDER_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ to, message }),
-      signal: ctrl.signal
+      body: JSON.stringify({ to: cleanPhone, text }),
+      signal: controller.signal
     });
-    clearTimeout(t);
-    if (!res.ok) {
-      const txt = await res.text();
-      return { error: `wasender ${res.status}: ${txt}` };
-    }
-    return await res.json();
-  } catch (e) {
-    clearTimeout(t);
-    return { error: e.message };
+    clearTimeout(timeout);
+    const resBody = await res.json();
+    console.log('✅ Wasender response:', res.status, JSON.stringify(resBody).substring(0, 200));
+    if (!res.ok) console.error('❌ Erro Wasender:', JSON.stringify(resBody));
+  } catch (err) {
+    console.error('❌ Erro ao enviar:', err.message);
   }
 }
 
-async function decodeMedia(messageId, mimeType) {
-  if (!messageId) return null;
+// Descriptografa mídia (imagem/áudio/documento) do Wasender
+async function decryptMedia(messagesPayload) {
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+
   try {
-    const res = await fetch(`${WASENDER_API_BASE}/decode-media`, {
+    const res = await fetch('https://www.wasenderapi.com/api/decrypt-media', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${WASENDER_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ message_id: messageId, mime_type: mimeType })
+      body: JSON.stringify({ data: { messages: messagesPayload } })
     });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.file_url || data?.base64 || null;
-  } catch {
-    return null;
-  }
-}
-
-async function downloadFile(url) {
-  if (!url) return null;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    return buf;
-  } catch {
-    return null;
-  }
-}
-
-async function transcribeAudio(audioBuffer, filename = 'audio.ogg') {
-  if (!audioBuffer || !GROQ_API_KEY) return null;
-  try {
-    const form = new (require('form-data'))();
-    form.append('file', audioBuffer, { filename, contentType: 'audio/ogg' });
-    form.append('model', 'whisper-large-v3');
-    form.append('language', 'pt');
-
-    const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${GROQ_API_KEY}`,
-        ...form.getHeaders()
-      },
-      body: form
-    });
-    if (!res.ok) {
-      console.error('groq transcription failed:', res.status, await res.text());
-      return null;
+    const json = await res.json();
+    if (json.success && (json.publicUrl || json.url)) {
+      return json.publicUrl || json.url;
     }
-    const data = await res.json();
-    return data?.text || null;
-  } catch (e) {
-    console.error('transcribeAudio error:', e.message);
+    return null;
+  } catch (err) {
+    console.log('❌ Decrypt exception:', err.message);
     return null;
   }
+}
+
+// Transcreve áudio via Groq Whisper
+async function transcribeAudioViaGroq(audioUrl) {
+  const groqApiKey = process.env.GROQ_API_KEY;
+  if (!groqApiKey) throw new Error('GROQ_API_KEY não configurada');
+
+  const wasenderApiKey = getApiKey();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  const audioResponse = await fetch(audioUrl, {
+    signal: controller.signal,
+    headers: wasenderApiKey ? { 'Authorization': `Bearer ${wasenderApiKey}` } : {}
+  });
+  clearTimeout(timeout);
+
+  if (!audioResponse.ok) throw new Error(`Falha ao baixar áudio: ${audioResponse.status}`);
+
+  const audioBuffer = await audioResponse.arrayBuffer();
+  const formData = new FormData();
+  formData.append('file', new Blob([audioBuffer], { type: 'audio/ogg' }), 'audio.ogg');
+  formData.append('model', 'whisper-large-v3-turbo');
+  formData.append('language', 'pt');
+  formData.append('response_format', 'json');
+
+  const groqController = new AbortController();
+  const groqTimeout = setTimeout(() => groqController.abort(), 60000);
+  const groqResponse = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${groqApiKey}` },
+    body: formData,
+    signal: groqController.signal
+  });
+  clearTimeout(groqTimeout);
+
+  if (!groqResponse.ok) throw new Error(`Groq error ${groqResponse.status}`);
+  const result = JSON.parse(await groqResponse.text());
+  return (result.text || '').trim();
 }
 
 module.exports = {
-  normalizePhone,
   sendWhatsAppMessage,
-  decodeMedia,
-  downloadFile,
-  transcribeAudio,
+  decryptMedia,
+  transcribeAudioViaGroq,
 };
