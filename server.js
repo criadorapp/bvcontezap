@@ -6,9 +6,9 @@
 
 const express = require('express');
 const crypto = require('crypto');
-const { sendWhatsAppMessage, decryptMedia, transcribeAudioViaGroq } = require('./lib/wasender');
-const { detectCategoryFromText, hasFinancialIntent, isBotMessage } = require('./lib/patterns');
-const b44 = require('./lib/base44api');
+const { sendWhatsAppMessage, decryptMedia, transcribeAudioViaGroq } = require('./lib_temp/wasender');
+const { detectCategoryFromText, hasFinancialIntent, isBotMessage } = require('./lib_temp/patterns');
+const b44 = require('./lib_temp/base44api');
 
 const app = express();
 
